@@ -29,6 +29,20 @@ defmodule Eris.LLM do
     ]
   end
 
+  defmodule DumbReceive do
+    def fetch_content(
+          prev \\ %{content: "", tool_calls_raw: %{}}
+        ) do
+      receive do
+        {:llm_token, content} ->
+          fetch_content(%{prev | content: prev.content <> content})
+
+        {:llm_stream_done, fin} ->
+          fin
+      end
+    end
+  end
+
   @default_root_url "https://openrouter.ai/api/v1"
 
   def chat_completion(llm_conf = %Config{}, prev_messages, opts) do
@@ -36,7 +50,6 @@ defmodule Eris.LLM do
     url = build_url(llm_conf.root_url, "completions")
     stream? = Keyword.get(opts, :stream_output, true)
     tools = Keyword.get(opts, :tools, nil)
-    on_token = Keyword.get(opts, :on_token, fn _ -> :ok end)
 
     model =
       if(is_nil(llm_conf.provider),
@@ -63,7 +76,7 @@ defmodule Eris.LLM do
     ]
 
     if stream? do
-      do_stream_request(url, headers, body, on_token, caller_pid)
+      do_stream_request(url, headers, body, caller_pid)
     else
       do_normal_request(url, headers, body)
     end
@@ -76,7 +89,7 @@ defmodule Eris.LLM do
   defp build_url(base, "completions"), do: String.trim_trailing(base, "/") <> "/chat/completions"
   # Add responses
 
-  defp do_stream_request(url, headers, body, on_token, caller_pid) do
+  defp do_stream_request(url, headers, body, caller_pid) do
     initial_acc = %{
       content: "",
       tool_calls_raw: %{},
@@ -101,17 +114,16 @@ defmodule Eris.LLM do
 
           new_state =
             Enum.reduce(complete_events, %{state | buffer: leftover}, fn event, acc ->
-              parse_sse_event(event, acc, on_token, caller_pid)
+              parse_sse_event(event, acc, caller_pid)
             end)
 
           {:cont, {req, %{res | body: new_state}}}
         end
       )
 
-    send(caller_pid, {:llm_stream_done})
     final_state = req_result.body
 
-    %{
+    renamed_final = %{
       content: final_state.content,
       tool_calls: final_state.tool_calls_raw,
       usage: %{
@@ -119,9 +131,11 @@ defmodule Eris.LLM do
         completion_tokens: final_state.completion_tokens
       }
     }
+
+    send(caller_pid, {:llm_stream_done, renamed_final})
   end
 
-  defp parse_sse_event(event_str, acc, on_token, _caller_pid) do
+  defp parse_sse_event(event_str, acc, caller_pid) do
     case String.trim(event_str) do
       "data: [DONE]" ->
         acc
@@ -145,8 +159,7 @@ defmodule Eris.LLM do
             # 处理纯文本输出
             acc =
               if content = delta["content"] do
-                # 只有 content 非空字符串时才打印并拼接
-                if content != "", do: on_token.(content)
+                if content != "", do: send(caller_pid, {:llm_token, content})
                 %{acc | content: acc.content <> content}
               else
                 acc
