@@ -2,6 +2,25 @@
 
 学习 [he-yufeng/CoreCoder](https://github.com/he-yufeng/CoreCoder) 的 Elixir 实现。
 
+---
+
+Powered by:
+
+```elixir
+%Eris.LLM.Config{
+  root_url: "https://zenmux.ai/api/v1",
+  provider: nil,
+  model: "sapiens-ai/agnes-1.5-lite",
+  api_key: "sk-ai-******",
+  max_tokens: 8192,
+  temperature: 0.0,
+  max_context_tokens: 128000,
+  total_prompt_tokens: 0,
+  total_completion_tokens: 0,
+  manifest: %{}
+}
+```
+
 ## 简介
 
 Eris 是一个基于 Elixir 的 AI 助手，专为开发者设计，支持：

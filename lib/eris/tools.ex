@@ -12,7 +12,9 @@ defmodule Eris.Tools do
     Eris.Tools.SubAgent,
     Eris.Tools.Glob,
     Eris.Tools.Grep,
-    Eris.Tools.ZipElixirProject
+    Eris.Tools.ZipElixirProject,
+    Eris.Tools.Bash,
+    Eris.Tools.PowerShell
   ]
 
   def all, do: @tools
