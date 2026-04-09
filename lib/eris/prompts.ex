@@ -12,7 +12,7 @@ defmodule Eris.Prompts do
   # opts 包含一个选项：是否保留每个 Session 开始的 Prompt
   def build_system_prompt(_ctx, _opts) do
     # 助手身份
-    _assistant_identity = @assistant_identity
+    assistant_identity = @assistant_identity
 
     # 关于用户/偏好
 
@@ -22,7 +22,9 @@ defmodule Eris.Prompts do
     """
 
     # 系统环境
-    _enviornment = get_final_enviornment()
+    enviornment = get_final_enviornment()
+
+    assistant_identity <> "\n\n" <> enviornment
   end
 
   def get_final_enviornment() do

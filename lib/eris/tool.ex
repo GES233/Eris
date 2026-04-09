@@ -30,7 +30,7 @@ defmodule Eris.Tool do
       if Path.type(expanded) == :absolute do
         expanded
       else
-        Path.join(cwd || File.cwd!(), file_path) |> Path.expand()
+        Path.expand(Path.join(cwd || File.cwd!(), file_path))
       end
     end
 
