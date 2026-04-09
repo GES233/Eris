@@ -1,4 +1,6 @@
 defmodule Eris.LLM do
+  # 照理说可以用 OpenAI Compat 的库来做。
+  # 但不清楚怎么处理 Stream ，于是就手搓轮子了。
   defmodule Config do
     # 这种动态 Config 而不用 Elixir 的 Config 是为了适配这样的情形：
     # 主 Agent 选择 SOTA
@@ -34,6 +36,9 @@ defmodule Eris.LLM do
       receive do
         {:llm_token, content} ->
           fetch_content(%{prev | content: prev.content <> content})
+
+        {:llm_reasoning, delta} ->
+          fetch_content(%{prev | maybe_reasoning: prev.maybe_reasoning <> delta})
 
         {:llm_stream_done, fin} ->
           fin
@@ -114,8 +119,6 @@ defmodule Eris.LLM do
     end
   end
 
-  # ... chat_completion, build_url, do_stream_request, parse_sse_event, do_normal_request 不变 ...  
-
   # TODO: Add files
   # TODO: Add pictures(some model)
 
@@ -123,7 +126,6 @@ defmodule Eris.LLM do
   defp build_url(base, "completions"), do: String.trim_trailing(base, "/") <> "/chat/completions"
   defp build_url(nil, "responses"), do: build_url(@default_root_url, "responses")
   defp build_url(base, "responses"), do: String.trim_trailing(base, "/") <> "/responses"
-  # Add responses
 
   defp do_stream_request(url, headers, body, caller_pid) do
     initial_acc = %{
@@ -279,8 +281,8 @@ defmodule Eris.LLM do
   end
 
   defp parse_responses_sse_event(event_str, acc, caller_pid) do
-    # Responses API 的 SSE 格式：只有 data: 行，没有 event: 行  
-    # 类型信息在 JSON 的 "type" 字段中  
+    # Responses API 的 SSE 格式：只有 data: 行，没有 event: 行
+    # 类型信息在 JSON 的 "type" 字段中
     json_str =
       event_str
       |> String.split("\n")
@@ -306,7 +308,7 @@ defmodule Eris.LLM do
     end
   end
 
-  # 文本输出增量  
+  # 文本输出增量
   defp handle_responses_event("response.output_text.delta", data, acc, caller_pid) do
     delta = data["delta"] || ""
 
@@ -317,13 +319,18 @@ defmodule Eris.LLM do
     %{acc | content: acc.content <> delta}
   end
 
-  # 推理摘要增量（reasoning model 特有）  
-  defp handle_responses_event("response.reasoning_summary_text.delta", data, acc, _caller_pid) do
+  # 推理摘要增量（reasoning model 特有）
+  defp handle_responses_event("response.reasoning_summary_text.delta", data, acc, caller_pid) do
     delta = data["delta"] || ""
+
+    if delta != "" do
+      send(caller_pid, {:llm_reasoning, delta})
+    end
+
     %{acc | reasoning: acc.reasoning <> delta}
   end
 
-  # 流式完成：提取 usage  
+  # 流式完成：提取 usage
   defp handle_responses_event("response.completed", data, acc, _caller_pid) do
     usage = get_in(data, ["response", "usage"]) || %{}
 
@@ -333,20 +340,20 @@ defmodule Eris.LLM do
     %{acc | prompt_tokens: prompt_tokens, completion_tokens: completion_tokens}
   end
 
-  # 工具调用参数增量（预留）  
+  # 工具调用参数增量（预留）
   defp handle_responses_event("response.function_call_arguments.delta", _data, acc, _caller_pid) do
-    # TODO: 拼接工具调用参数  
-    # data["delta"] 是参数 JSON 片段  
-    # data["output_index"] 和 data["call_id"] 可用于标识是哪个工具调用  
+    # TODO: 拼接工具调用参数
+    # data["delta"] 是参数 JSON 片段
+    # data["output_index"] 和 data["call_id"] 可用于标识是哪个工具调用
     acc
   end
 
-  # 忽略所有其他事件类型  
-  # response.created, response.in_progress, response.output_item.added,  
-  # response.reasoning_summary_part.added, response.reasoning_summary_text.done,  
-  # response.reasoning_summary_part.done, response.output_item.done,  
-  # response.content_part.added, response.output_text.done,  
-  # response.content_part.done, 等  
+  # 忽略所有其他事件类型
+  # response.created, response.in_progress, response.output_item.added,
+  # response.reasoning_summary_part.added, response.reasoning_summary_text.done,
+  # response.reasoning_summary_part.done, response.output_item.done,
+  # response.content_part.added, response.output_text.done,
+  # response.content_part.done, 等
   defp handle_responses_event(_type, _data, acc, _caller_pid) do
     acc
   end
@@ -354,14 +361,14 @@ defmodule Eris.LLM do
   defp do_responses_normal_request(url, headers, body) do
     response = Req.post!(url, json: body, headers: headers, receive_timeout: 120_000)
 
-    # 从 output 数组中提取文本和推理  
+    # 从 output 数组中提取文本和推理
     output = response.body["output"] || []
 
     {content, reasoning} =
       Enum.reduce(output, {"", ""}, fn item, {content_acc, reasoning_acc} ->
         case item["type"] do
           "message" ->
-            # 从 message 类型的 item 中提取文本  
+            # 从 message 类型的 item 中提取文本
             text =
               item["content"]
               |> Enum.map_join(fn part -> part["text"] || "" end)
@@ -369,7 +376,7 @@ defmodule Eris.LLM do
             {content_acc <> text, reasoning_acc}
 
           "reasoning" ->
-            # 从 reasoning 类型的 item 中提取摘要  
+            # 从 reasoning 类型的 item 中提取摘要
             summary_text =
               item["summary"]
               |> Enum.map_join(fn part -> part["text"] || "" end)

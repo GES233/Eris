@@ -23,7 +23,8 @@ defmodule Eris.MixProject do
   defp deps do
     [
       {:req, "~> 0.5.0"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:ex_ratatui, "~> 0.5"}
     ]
   end
 end
