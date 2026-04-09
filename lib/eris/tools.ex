@@ -14,7 +14,8 @@ defmodule Eris.Tools do
     Eris.Tools.Grep,
     Eris.Tools.ZipElixirProject,
     Eris.Tools.Bash,
-    Eris.Tools.PowerShell
+    Eris.Tools.PowerShell,
+    Eris.Tools.FetchUrl
   ]
 
   def all, do: @tools
