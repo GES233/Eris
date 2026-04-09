@@ -102,31 +102,15 @@ defmodule Eris.Entry do
 
   @impl true
   def handle_event(%ExRatatui.Event.Key{code: "enter"}, state) do
-    text = ExRatatui.text_input_get_value(state.input_ref) |> String.trim()
+    do_enter(state)
+  end
 
-    if text != "" do
-      # 清空输入框
-      ExRatatui.text_input_set_value(state.input_ref, "")
+  def handle_event(%ExRatatui.Event.Key{code: "\r"}, state) do
+    do_enter(state)
+  end
 
-      # 把用户消息加入历史
-      user_msg = %{role: :user, content: text}
-      new_messages = state.messages ++ [user_msg]
-
-      # 发送给 Seasons
-      Eris.Seasons.user_input(state.seasons_pid, text)
-
-      new_state = %{
-        state
-        | messages: new_messages,
-          streaming_text: "",
-          ui_state: :thinking,
-          scroll: 0
-      }
-
-      {:noreply, new_state}
-    else
-      {:noreply, state}
-    end
+  def handle_event(%ExRatatui.Event.Key{code: "\n"}, state) do
+    do_enter(state)
   end
 
   # Ctrl+C 退出
@@ -141,6 +125,21 @@ defmodule Eris.Entry do
 
   def handle_event(%ExRatatui.Event.Key{code: "page_down"}, state) do
     {:noreply, %{state | scroll: state.scroll + 5}}
+  end
+
+  def handle_event(%ExRatatui.Event.Key{code: "backspace"}, state) do
+    ExRatatui.text_input_handle_key(state.input_ref, "backspace")
+    {:noreply, state}
+  end
+
+  def handle_event(%ExRatatui.Event.Key{code: <<127>>}, state) do
+    ExRatatui.text_input_handle_key(state.input_ref, "backspace")
+    {:noreply, state}
+  end
+
+  def handle_event(%ExRatatui.Event.Key{code: "\b"}, state) do
+    ExRatatui.text_input_handle_key(state.input_ref, "backspace")
+    {:noreply, state}
   end
 
   # 其他按键转发给 TextInput
@@ -223,6 +222,34 @@ defmodule Eris.Entry do
   end
 
   # ── 渲染辅助函数 ──────────────────────────────────
+
+  defp do_enter(state) do
+    text = ExRatatui.text_input_get_value(state.input_ref) |> String.trim()
+
+    if text != "" do
+      # 清空输入框
+      ExRatatui.text_input_set_value(state.input_ref, "")
+
+      # 把用户消息加入历史
+      user_msg = %{role: :user, content: text}
+      new_messages = state.messages ++ [user_msg]
+
+      # 发送给 Seasons
+      Eris.Seasons.user_input(state.seasons_pid, text)
+
+      new_state = %{
+        state
+        | messages: new_messages,
+          streaming_text: "",
+          ui_state: :thinking,
+          scroll: 0
+      }
+
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
 
   defp render_title(state, _width) do
     status_text =
