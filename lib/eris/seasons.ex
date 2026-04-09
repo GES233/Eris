@@ -22,10 +22,39 @@ defmodule Eris.Seasons do
   @impl true
   def init(options) do
     llm_conf = Keyword.fetch!(options, :llm_conf)
+    tools = Keyword.get(options, :tools, Eris.Tools.all())
 
-    # TODO: 构建 Prompts
+    # 构建初始上下文
+    ctx = %{
+      include_full_environment: true,
+      tools: tools,
+      llm_conf: llm_conf
+    }
 
-    {:ok, :idle, %State{llm: llm_conf}}
+    # 构建系统提示词
+    system_prompt = Eris.Prompts.build_system_prompt(ctx,
+      include_identity: true,
+      include_environment: true,
+      include_tools: true,
+      include_rules: true,
+      include_guidelines: true
+    )
+
+    # 初始化消息列表，包含系统提示词
+    initial_messages = [
+      %{"role" => "system", "content" => system_prompt}
+    ]
+
+    {:ok, :idle, %State{
+      llm: llm_conf,
+      messages: initial_messages,
+      llm_task: nil,
+      pending_tools: %{},
+      tool_builder: %{},
+      current_tool_index: nil,
+      # system_prompt: system_prompt,
+      # ctx: ctx
+    }}
   end
 
   def idle(:enter, _old_state, _data), do: :keep_state_and_data
