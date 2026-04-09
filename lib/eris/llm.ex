@@ -119,9 +119,6 @@ defmodule Eris.LLM do
     end
   end
 
-  # TODO: Add files
-  # TODO: Add pictures(some model)
-
   defp build_url(nil, "completions"), do: build_url(@default_root_url, "completions")
   defp build_url(base, "completions"), do: String.trim_trailing(base, "/") <> "/chat/completions"
   defp build_url(nil, "responses"), do: build_url(@default_root_url, "responses")
@@ -159,18 +156,41 @@ defmodule Eris.LLM do
         end
       )
 
-    final_state = req_result.body
+    with %{} = final_state <- req_result.body do
+      tool_calls =
+        final_state.tool_calls_raw
+        |> Enum.sort_by(fn {idx, _} -> idx end)
+        |> Enum.map(fn {_idx, tc} ->
+          args_map =
+            case Jason.decode(tc.args) do
+              {:ok, parsed} -> parsed
+              {:error, _} -> %{}
+            end
 
-    renamed_final = %{
-      content: final_state.content,
-      tool_calls: final_state.tool_calls_raw,
-      usage: %{
-        prompt_tokens: final_state.prompt_tokens,
-        completion_tokens: final_state.completion_tokens
+          %{
+            "id" => tc.id,
+            "type" => "function",
+            "function" => %{
+              "name" => tc.name,
+              "arguments" => args_map
+            }
+          }
+        end)
+
+      renamed_final = %{
+        content: final_state.content,
+        tool_calls: tool_calls,
+        usage: %{
+          prompt_tokens: final_state.prompt_tokens,
+          completion_tokens: final_state.completion_tokens
+        }
       }
-    }
 
-    send(caller_pid, {:llm_stream_done, renamed_final})
+      send(caller_pid, {:llm_stream_done, renamed_final})
+    else
+      maybe_err ->
+        send(caller_pid, {:dump, maybe_err})
+    end
   end
 
   defp do_responses_stream_request(url, headers, body, caller_pid) do
@@ -204,19 +224,19 @@ defmodule Eris.LLM do
         end
       )
 
-    final_state = req_result.body
-
-    renamed_final = %{
-      content: final_state.content,
-      reasoning: final_state.reasoning,
-      tool_calls: final_state.tool_calls_raw,
-      usage: %{
-        prompt_tokens: final_state.prompt_tokens,
-        completion_tokens: final_state.completion_tokens
+    with %{} = final_state <- req_result.body do
+      renamed_final = %{
+        content: final_state.content,
+        reasoning: final_state.reasoning,
+        tool_calls: final_state.tool_calls_raw,
+        usage: %{
+          prompt_tokens: final_state.prompt_tokens,
+          completion_tokens: final_state.completion_tokens
+        }
       }
-    }
 
-    send(caller_pid, {:llm_stream_done, renamed_final})
+      send(caller_pid, {:llm_stream_done, renamed_final})
+    end
   end
 
   defp parse_sse_event(event_str, acc, caller_pid) do
@@ -249,9 +269,34 @@ defmodule Eris.LLM do
                 acc
               end
 
-            # (预留) 处理 Tool Calls 拼接逻辑
-            # acc = if tool_calls = delta["tool_calls"] do ... else acc end
-            # 或者换种方式？把 acc 的内容往外泄
+            acc =
+              case delta["tool_calls"] do
+                nil ->
+                  acc
+
+                tc_deltas ->
+                  send(caller_pid, {:llm_tool_delta, tc_deltas})
+
+                  Enum.reduce(tc_deltas, acc, fn tc_delta, inner_acc ->
+                    idx = tc_delta["index"]
+
+                    existing =
+                      Map.get(inner_acc.tool_calls_raw, idx, %{id: "", name: "", args: ""})
+
+                    updated = %{
+                      existing
+                      | id: existing.id <> (tc_delta["id"] || ""),
+                        name:
+                          existing.name <>
+                            (get_in(tc_delta, ["function", "name"]) || ""),
+                        args:
+                          existing.args <>
+                            (get_in(tc_delta, ["function", "arguments"]) || "")
+                    }
+
+                    %{inner_acc | tool_calls_raw: Map.put(inner_acc.tool_calls_raw, idx, updated)}
+                  end)
+              end
 
             acc
 
@@ -341,10 +386,12 @@ defmodule Eris.LLM do
   end
 
   # 工具调用参数增量（预留）
-  defp handle_responses_event("response.function_call_arguments.delta", _data, acc, _caller_pid) do
+  defp handle_responses_event("response.function_call_arguments.delta", data, acc, _caller_pid) do
     # TODO: 拼接工具调用参数
     # data["delta"] 是参数 JSON 片段
     # data["output_index"] 和 data["call_id"] 可用于标识是哪个工具调用
+    IO.inspect(data)
+
     acc
   end
 
