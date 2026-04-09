@@ -11,7 +11,8 @@ defmodule Eris.Tools do
     Eris.Tools.WriteFile,
     Eris.Tools.SubAgent,
     Eris.Tools.Glob,
-    Eris.Tools.Grep
+    Eris.Tools.Grep,
+    Eris.Tools.ZipElixirProject
   ]
 
   def all, do: @tools
