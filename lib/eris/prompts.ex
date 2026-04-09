@@ -125,17 +125,18 @@ defmodule Eris.Prompts do
     env_parts =
       ["Working Directory: #{File.cwd!()}", "Architecture: #{:erlang.system_info(:system_architecture)}"]
 
-    if include_full_env do
-      env_parts ++ [
-        "Elixir Version: #{System.version()}",
-        "OTP Version: #{:erlang.system_info(:otp_release)}"
-      ]
-    else
-      env_parts
-    end
-    |> Enum.join("\n")
+    env_string =
+      if include_full_env do
+        env_parts ++ [
+          "Elixir Version: #{System.version()}",
+          "OTP Version: #{:erlang.system_info(:otp_release)}"
+        ]
+      else
+        env_parts
+      end
+      |> Enum.join("\n- ")
 
-    "## System Environment\n\n#{env_parts}"
+    "## System Environment\n\n- #{env_string}"
   end
 
   @doc """
@@ -279,9 +280,11 @@ defmodule Eris.Prompts do
   end
 
   defp remove_section(text, section) do
-    text
-    |> String.split(section)
-    |> List.first()
+    # 修复：不要使用 String.split 取第一部分，这会截断后续所有内容
+    # 而是使用正则表达式或字符串替换来移除特定区块
+    # 假设每个区块以 "## " 开头，直到下一个 "## " 或字符串结尾
+    regex = ~r/#{Regex.escape(section)}.*?(?=\n## |\z)/s
+    String.replace(text, regex, "")
     |> String.trim_trailing("\n\n")
   end
 end
